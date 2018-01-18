@@ -112,6 +112,12 @@
 // Enable MFEM functionality based on the PUMI library
 // #define MFEM_USE_PUMI
 
+// Enable functionality based on the OCCA library.
+// #define MFEM_USE_OCCA
+
+// Enable functionality based on the AcroTensor library
+// #define MFEM_USE_ACROTENSOR
+
 // Windows specific options
 #ifdef _WIN32
 // Macro needed to get defines like M_PI from <cmath>. (Visual Studio C++ only?)
