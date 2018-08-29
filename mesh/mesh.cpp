@@ -2357,7 +2357,11 @@ Mesh::Mesh(const Mesh &mesh, bool copy_nodes)
    }
 
    // Copy the vertices
-   mesh.vertices.Copy(vertices);
+   vertices.SetSize(NumOfVertices);
+   for (int i = 0; i < NumOfVertices; i++)
+   {
+      vertices[i].SetCoords(spaceDim, mesh.vertices[i]());
+   }
 
    // Duplicate the boundary
    boundary.SetSize(NumOfBdrElements);
