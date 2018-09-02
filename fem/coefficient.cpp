@@ -152,9 +152,23 @@ void VectorArrayCoefficient::Eval(Vector &V, ElementTransformation &T,
 }
 
 VectorGridFunctionCoefficient::VectorGridFunctionCoefficient (
-   GridFunction *gf) : VectorCoefficient (gf -> VectorDim())
+   GridFunction *gf) : VectorCoefficient (gf ? gf -> VectorDim() : 0)
 {
    GridFunc = gf;
+}
+
+void VectorGridFunctionCoefficient::SetGridFunction(GridFunction *gf)
+{
+   if (gf)
+   {
+      vdim = gf->VectorDim();
+      GridFunc = gf;
+   }
+   else
+   {
+      vdim = 0;
+      GridFunc = NULL;
+   }
 }
 
 void VectorGridFunctionCoefficient::Eval(Vector &V, ElementTransformation &T,
