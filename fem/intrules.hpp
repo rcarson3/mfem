@@ -26,8 +26,11 @@ class IntegrationPoint
 {
 public:
    double x, y, z, weight;
+   int ipID; // added by srw for Eval routine on QuadratureVectorFunctionCoefficient
 
    void Init() { x = y = z = weight = 0.0; }
+
+   void SetIpID(int id) { ipID = id; }
 
    void Set(const double *p, const int dim)
    {
@@ -216,6 +219,7 @@ public:
       for (int i = 0; i < this->Size(); i++)
       {
          (*this)[i].Init();
+	 (*this)[i].SetIpID(i);
       }
    }
 

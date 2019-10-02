@@ -232,6 +232,9 @@ public:
 
    Vector &operator-=(const Vector &v);
 
+   // added by srw for exaconstit
+   Vector & operator+=(double c);
+
    Vector &operator+=(const Vector &v);
 
    /// (*this) += a * Va
@@ -241,6 +244,11 @@ public:
    Vector &Set(const double a, const Vector &x);
 
    void SetVector(const Vector &v, int offset);
+
+   /// Set the subset of element in (*this) defined by @a offset
+   /// and the subset length, @a sslen, equal to the subset of
+   /// elements in @a v defined by @a ssoffset and @a sslen.
+   void SetVector (const Vector &v, int offset, int sslen, int ssoffset);
 
    /// (*this) = -(*this)
    void Neg();

@@ -47,6 +47,15 @@ void NonlinearFormIntegrator::AssembleElementVector(
               " is not overloaded!");
 }
 
+void NonlinearFormIntegrator::AssembleElementVector(
+   const FiniteElement &el, ElementTransformation &Ttr_beg,
+   ElementTransformation &Ttr_end,
+   const Vector &elfun, Vector &elvect, const Vector &elvel)
+{
+   mfem_error("NonlinearFormIntegrator::AssembleElementVector"
+              " is not overloaded!");
+}
+
 void NonlinearFormIntegrator::AssembleFaceVector(
    const FiniteElement &el1, const FiniteElement &el2,
    FaceElementTransformations &Tr, const Vector &elfun, Vector &elvect)
@@ -132,7 +141,6 @@ double BlockNonlinearFormIntegrator::GetElementEnergy(
               " is not overloaded!");
    return 0.0;
 }
-
 
 double InverseHarmonicModel::EvalW(const DenseMatrix &J) const
 {

@@ -175,6 +175,16 @@ Vector &Vector::operator-=(const Vector &v)
    return *this;
 }
 
+// added by srw for exaconstit
+Vector &Vector::operator+=(double c)
+{
+   for (int i = 0; i < size; i++)
+   {
+      data[i] += c;
+   }
+   return *this;
+}
+
 Vector &Vector::operator+=(const Vector &v)
 {
    MFEM_ASSERT(size == v.size, "incompatible Vectors!");
@@ -222,6 +232,30 @@ void Vector::SetVector(const Vector &v, int offset)
    const double *vp = v.data;
    double *p = data + offset;
    for (int i = 0; i < vs; i++)
+   {
+      p[i] = vp[i];
+   }
+}
+
+void Vector::SetVector(const Vector &v, int offset, int sslen, int ssoffset)
+{
+   int vs = v.Size();
+   const double *vp = v.data + ssoffset;
+   double *p = data + offset;
+
+#ifdef MFEM_DEBUG
+   if (offset+sslen > size)
+   {
+      mfem_error("Vector::SetVector(const Vector &, int, int, int)");
+   }
+
+   if (ssoffset+sslen > vs)
+   {
+      mfem_error("Vector::SetVector(const Vector &, int, int, int)");
+   }
+#endif
+
+   for (int i = 0; i < sslen; i++)
    {
       p[i] = vp[i];
    }
