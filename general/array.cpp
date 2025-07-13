@@ -180,6 +180,7 @@ template class Array<int>;
 template class Array<long long>;
 template class Array<real_t>;
 template class Array2D<int>;
+template class Array2D<bool>;
 template class Array2D<real_t>;
 
 } // namespace mfem
