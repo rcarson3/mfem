@@ -15,12 +15,18 @@
 #include "../config/config.hpp"
 #include "fespace.hpp"
 #include "pointer_utils.hpp"
-#include <unordered_map>
-#include <memory>
 #include <array>
+#include <memory>
+#include <unordered_map>
 
 namespace mfem
 {
+
+enum class QSpaceOffsetStorage
+{
+   FULL,
+   COMPRESSED
+};
 
 /// Abstract base class for QuadratureSpace and FaceQuadratureSpace.
 /** This class represents the storage layout for QuadratureFunction%s, that may
@@ -33,34 +39,43 @@ protected:
    std::shared_ptr<Mesh> mesh; ///< The underlying mesh.
    int order; ///< The order of integration rule.
    int size; ///< Total number of quadrature points.
+   int ne; ///< Number of entities.
    mutable Vector weights; ///< Integration weights.
    mutable long nodes_sequence = 0; ///< Nodes counter for cache invalidation.
 
-   /// @brief Entity quadrature point offset array, of size num_entities + 1.
+   /// @brief Entity quadrature point offset array.
    ///
-   /// The quadrature point values for entity i are stored in the indices between
-   /// offsets[i] and offsets[i+1].
+   /// Supports a constant compression scheme for meshes which have a single
+   /// geometry type. When compressed, this has a single value. The true offset
+   /// can be computed as i * offsets[0], where i is the entity index.
    Array<int> offsets;
-   
+
+   /// @brief Cached version of the full offsets array.
+   ///
+   /// When Offsets(QSpaceOffsetStorage::FULL) is requested for a compressed
+   /// space, this cache stores the expanded offsets.
+   mutable Array<int> full_offset_cache;
+
    /// The quadrature rules used for each geometry type.
    std::array<const IntegrationRule*, Geometry::NumGeom> int_rule = {};
 
    /// Protected constructor. Used by derived classes.
    QuadratureSpaceBase(std::shared_ptr<Mesh> mesh_, int order_ = 0)
-      : mesh(std::move(mesh_)), order(order_) { }
+      : mesh(std::move(mesh_)), order(order_), size(0), ne(0) { }
 
-   /// Protected constructor with raw pointer (deprecated)
+   /// Protected constructor with raw pointer (deprecated).
    [[deprecated("Use constructor with std::shared_ptr<Mesh> instead")]]
-   QuadratureSpaceBase(Mesh* mesh_, int order_ = 0)
-      : mesh(ptr_utils::borrow_ptr(mesh_)), order(order_) { }
+   QuadratureSpaceBase(Mesh *mesh_, int order_ = 0)
+      : QuadratureSpaceBase(ptr_utils::borrow_ptr(mesh_), order_) { }
 
    /// Protected constructor. Used by derived classes.
    QuadratureSpaceBase(std::shared_ptr<Mesh> mesh_, Geometry::Type geom,
                        const IntegrationRule &ir);
 
-   /// Protected constructor with raw pointer (deprecated)
+   /// Protected constructor with raw pointer (deprecated).
    [[deprecated("Use constructor with std::shared_ptr<Mesh> instead")]]
-   QuadratureSpaceBase(Mesh* mesh_, Geometry::Type geom, const IntegrationRule &ir);
+   QuadratureSpaceBase(Mesh *mesh_, Geometry::Type geom,
+                       const IntegrationRule &ir);
 
    /// Fill the @ref int_rule array for each geometry type using @ref order.
    void ConstructIntRules(int dim);
@@ -72,23 +87,34 @@ protected:
    void ConstructWeights() const;
 
 public:
+   /// @brief Gets the offset for a given entity @a idx.
+   int Offset(int idx) const
+   {
+      return (offsets.Size() == 1) ? (idx * offsets[0]) : offsets[idx];
+   }
 
-   [[nodiscard]] const mfem::Array<int>& getOffsets() const { return offsets; }
+   /// @brief Entity quadrature point offset array.
+   ///
+   /// If @a storage is QSpaceOffsetStorage::COMPRESSED, then the returned array
+   /// may use the constant-compression scheme described above. If @a storage is
+   /// QSpaceOffsetStorage::FULL, the returned array is always expanded.
+   const Array<int> &Offsets(QSpaceOffsetStorage storage) const;
+
    /// Return the total number of quadrature points.
    [[nodiscard]] int GetSize() const { return size; }
 
-   /// Return the order of the quadrature rule(s) used by all elements.
+   /// Return the order of the quadrature rule(s) used by all entities.
    [[nodiscard]] int GetOrder() const { return order; }
 
    /// Return the number of entities.
-   [[nodiscard]] int GetNE() const { return offsets.Size() - 1; }
+   [[nodiscard]] int GetNE() const { return ne; }
 
-   /// Returns the mesh as shared_ptr (modern).
+   /// Returns the mesh as shared_ptr.
    [[nodiscard]] std::shared_ptr<Mesh> GetMeshShared() const { return mesh; }
 
    /// Returns the mesh as raw pointer (deprecated).
    [[deprecated("Use GetMeshShared() instead")]]
-   [[nodiscard]] Mesh* GetMesh() const { return mesh.get(); }
+   [[nodiscard]] Mesh *GetMesh() const { return mesh.get(); }
 
    /// Get the (element or face) transformation of entity @a idx.
    [[nodiscard]] virtual ElementTransformation *GetTransformation(int idx) = 0;
@@ -102,20 +128,10 @@ public:
 
    /// @brief Returns the permuted index of the @a iq quadrature point in entity
    /// @a idx.
-   ///
-   /// For tensor-product faces, returns the lexicographic index of the
-   /// quadrature point, oriented relative to "element 1". For QuadratureSpace%s
-   /// defined on elements (not faces), the permutation is trivial, and this
-   /// returns @a iq.
    [[nodiscard]] virtual int GetPermutedIndex(int idx, int iq) const = 0;
 
    /// @brief Returns the index in the quadrature space of the entity associated
    /// with the transformation @a T.
-   ///
-   /// For a QuadratureSpace defined on elements, this just returns the element
-   /// index. For FaceQuadratureSpace, the returned index depends on the chosen
-   /// FaceType. If the entity is not found (for example, if @a T represents an
-   /// interior face, and the space has FaceType::Boundary) then -1 is returned.
    [[nodiscard]] virtual int GetEntityIndex(const ElementTransformation &T) const = 0;
 
    /// Write the QuadratureSpace to the stream @a out.
@@ -130,11 +146,10 @@ public:
    /// Return the integral of the VectorCoefficient @a coeff in @a integrals.
    void Integrate(VectorCoefficient &coeff, Vector &integrals) const;
 
-   // Factory methods for creating smart pointers
-   
-   /// Create a shared_ptr from raw pointer without taking ownership (deprecated)
-   [[deprecated("Use make_shared or shared_from_this instead")]]
-   static std::shared_ptr<QuadratureSpaceBase> CreateShared(QuadratureSpaceBase* qspace) {
+   /// Create a shared_ptr from a raw pointer without taking ownership.
+   [[deprecated("Use make_shared or an owning std::shared_ptr instead")]]
+   static std::shared_ptr<QuadratureSpaceBase> CreateShared(QuadratureSpaceBase *qspace)
+   {
       return ptr_utils::borrow_ptr(qspace);
    }
 
@@ -149,35 +164,48 @@ protected:
    const Vector &GetGeometricFactorWeights() const override;
    void ConstructOffsets();
    void Construct();
+
 public:
    /// Create a QuadratureSpace based on the global rules from #IntRules.
    QuadratureSpace(std::shared_ptr<Mesh> mesh_, int order_)
       : QuadratureSpaceBase(std::move(mesh_), order_) { Construct(); }
 
-   /// Create a QuadratureSpace based on the global rules from #IntRules (deprecated raw pointer version).
-   [[deprecated("Use constructor with std::shared_ptr<Mesh> instead")]]
-   QuadratureSpace(Mesh* mesh_, int order_)
-      : QuadratureSpaceBase(ptr_utils::borrow_ptr(mesh_), order_) { Construct(); }
+   /// Create a QuadratureSpace from a mesh reference.
+   QuadratureSpace(Mesh &mesh_, int order_)
+      : QuadratureSpace(ptr_utils::borrow_ptr(&mesh_), order_) { }
+
+   /// Create a QuadratureSpace based on the global rules from #IntRules.
+   [[deprecated("Use constructor with std::shared_ptr<Mesh> or Mesh& instead")]]
+   QuadratureSpace(Mesh *mesh_, int order_)
+      : QuadratureSpace(ptr_utils::borrow_ptr(mesh_), order_) { }
 
    /// @brief Create a QuadratureSpace with an IntegrationRule, valid only when
    /// the mesh has one element type.
    QuadratureSpace(std::shared_ptr<Mesh> mesh_, const IntegrationRule &ir);
 
-   /// @brief Create a QuadratureSpace with an IntegrationRule (deprecated raw pointer version).
-   [[deprecated("Use constructor with std::shared_ptr<Mesh> instead")]]
-   QuadratureSpace(Mesh* mesh_, const IntegrationRule &ir)
+   /// @brief Create a QuadratureSpace with an IntegrationRule from a mesh reference.
+   QuadratureSpace(Mesh &mesh_, const IntegrationRule &ir)
+      : QuadratureSpace(ptr_utils::borrow_ptr(&mesh_), ir) { }
+
+   /// @brief Create a QuadratureSpace with an IntegrationRule.
+   [[deprecated("Use constructor with std::shared_ptr<Mesh> or Mesh& instead")]]
+   QuadratureSpace(Mesh *mesh_, const IntegrationRule &ir)
       : QuadratureSpace(ptr_utils::borrow_ptr(mesh_), ir) { }
 
    /// Read a QuadratureSpace from the stream @a in.
    QuadratureSpace(std::shared_ptr<Mesh> mesh_, std::istream &in);
 
-   /// Read a QuadratureSpace from the stream @a in (deprecated raw pointer version).
-   [[deprecated("Use constructor with std::shared_ptr<Mesh> instead")]]
-   QuadratureSpace(Mesh* mesh_, std::istream &in)
+   /// Read a QuadratureSpace from the stream @a in using a mesh reference.
+   QuadratureSpace(Mesh &mesh_, std::istream &in)
+      : QuadratureSpace(ptr_utils::borrow_ptr(&mesh_), in) { }
+
+   /// Read a QuadratureSpace from the stream @a in.
+   [[deprecated("Use constructor with std::shared_ptr<Mesh> or Mesh& instead")]]
+   QuadratureSpace(Mesh *mesh_, std::istream &in)
       : QuadratureSpace(ptr_utils::borrow_ptr(mesh_), in) { }
 
    /// Returns number of elements in the mesh.
-   [[nodiscard]] inline int GetNE() const { return mesh->GetNE(); }
+   [[nodiscard]] int GetNE() const { return mesh->GetNE(); }
 
    /// Returns the element transformation of element @a idx.
    [[nodiscard]] ElementTransformation *GetTransformation(int idx) override
@@ -191,29 +219,26 @@ public:
    [[nodiscard]] const IntegrationRule &GetElementIntRule(int idx) const
    { return *int_rule[mesh->GetElementBaseGeometry(idx)]; }
 
-   /// @brief Returns the permuted index of the @a iq quadrature point in entity
-   /// @a idx.
-   ///
-   /// The member function QuadratureSpace::GetPermutedIndex always returns @a
-   /// iq, the permutation is only nontrivial for FaceQuadratureSpace.
+   /// QuadratureSpace element indices do not require permutation.
    [[nodiscard]] int GetPermutedIndex(int idx, int iq) const override { return iq; }
 
    /// Returns the element index of @a T.
-   [[nodiscard]] int GetEntityIndex(const ElementTransformation &T) const override { return T.ElementNo; }
+   [[nodiscard]] int GetEntityIndex(const ElementTransformation &T) const override
+   { return T.ElementNo; }
 
    /// Write the QuadratureSpace to the stream @a out.
    void Save(std::ostream &out) const override;
 
-   // Factory methods for creating QuadratureSpace instances
-
-   /// Create a shared_ptr QuadratureSpace from a Mesh shared_ptr
-   static std::shared_ptr<QuadratureSpace> Create(std::shared_ptr<Mesh> mesh, int order) {
+   /// Create a shared_ptr QuadratureSpace from a Mesh shared_ptr.
+   static std::shared_ptr<QuadratureSpace> Create(std::shared_ptr<Mesh> mesh, int order)
+   {
       return std::make_shared<QuadratureSpace>(std::move(mesh), order);
    }
 
-   /// Create a shared_ptr QuadratureSpace from a raw Mesh pointer (deprecated)
+   /// Create a shared_ptr QuadratureSpace from a raw Mesh pointer.
    [[deprecated("Use Create() with std::shared_ptr<Mesh> instead")]]
-   static std::shared_ptr<QuadratureSpace> Create(Mesh* mesh, int order) {
+   static std::shared_ptr<QuadratureSpace> Create(Mesh *mesh, int order)
+   {
       return std::make_shared<QuadratureSpace>(ptr_utils::borrow_ptr(mesh), order);
    }
 };
@@ -224,13 +249,12 @@ public:
 class FaceQuadratureSpace : public QuadratureSpaceBase
 {
    FaceType face_type; ///< Is the space defined on interior or boundary faces?
-   const int num_faces; ///< Number of faces.
 
    /// Map from boundary or interior face indices to mesh face indices.
-   Array<int> face_indices;
+   const Array<int> &face_indices;
 
    /// Inverse of the map @a face_indices.
-   std::unordered_map<int,int> face_indices_inv;
+   const std::unordered_map<int,int> &face_indices_inv;
 
    const Vector &GetGeometricFactorWeights() const override;
    void ConstructOffsets();
@@ -240,9 +264,13 @@ public:
    /// Create a FaceQuadratureSpace based on the global rules from #IntRules.
    FaceQuadratureSpace(std::shared_ptr<Mesh> mesh_, int order_, FaceType face_type_);
 
-   /// Create a FaceQuadratureSpace based on the global rules from #IntRules (deprecated raw pointer version).
-   [[deprecated("Use constructor with std::shared_ptr<Mesh> instead")]]
-   FaceQuadratureSpace(Mesh* mesh_, int order_, FaceType face_type_)
+   /// Create a FaceQuadratureSpace from a mesh reference.
+   FaceQuadratureSpace(Mesh &mesh_, int order_, FaceType face_type_)
+      : FaceQuadratureSpace(ptr_utils::borrow_ptr(&mesh_), order_, face_type_) { }
+
+   /// Create a FaceQuadratureSpace based on the global rules from #IntRules.
+   [[deprecated("Use constructor with std::shared_ptr<Mesh> or Mesh& instead")]]
+   FaceQuadratureSpace(Mesh *mesh_, int order_, FaceType face_type_)
       : FaceQuadratureSpace(ptr_utils::borrow_ptr(mesh_), order_, face_type_) { }
 
    /// @brief Create a FaceQuadratureSpace with an IntegrationRule, valid only
@@ -250,65 +278,62 @@ public:
    FaceQuadratureSpace(std::shared_ptr<Mesh> mesh_, const IntegrationRule &ir,
                        FaceType face_type_);
 
-   /// @brief Create a FaceQuadratureSpace with an IntegrationRule (deprecated raw pointer version).
-   [[deprecated("Use constructor with std::shared_ptr<Mesh> instead")]]
-   FaceQuadratureSpace(Mesh* mesh_, const IntegrationRule &ir, FaceType face_type_)
+   /// @brief Create a FaceQuadratureSpace with an IntegrationRule from a mesh reference.
+   FaceQuadratureSpace(Mesh &mesh_, const IntegrationRule &ir, FaceType face_type_)
+      : FaceQuadratureSpace(ptr_utils::borrow_ptr(&mesh_), ir, face_type_) { }
+
+   /// @brief Create a FaceQuadratureSpace with an IntegrationRule.
+   [[deprecated("Use constructor with std::shared_ptr<Mesh> or Mesh& instead")]]
+   FaceQuadratureSpace(Mesh *mesh_, const IntegrationRule &ir, FaceType face_type_)
       : FaceQuadratureSpace(ptr_utils::borrow_ptr(mesh_), ir, face_type_) { }
 
-   /// Returns number of faces in the mesh.
-   [[nodiscard]] inline int GetNumFaces() const { return num_faces; }
+   /// Returns number of faces in the space.
+   [[nodiscard]] int GetNumFaces() const { return face_indices.Size(); }
 
    /// Returns the face type (boundary or interior).
    [[nodiscard]] FaceType GetFaceType() const { return face_type; }
 
    /// Returns the face transformation of face @a idx.
-   [[nodiscard]] ElementTransformation *GetTransformation(int idx) override
-   { return mesh->GetFaceTransformation(face_indices[idx]); }
+   [[nodiscard]] ElementTransformation *GetTransformation(int idx) override;
 
    /// Returns the geometry type of face @a idx.
    [[nodiscard]] Geometry::Type GetGeometry(int idx) const override
    { return mesh->GetFaceGeometry(face_indices[idx]); }
 
-   /// Get the IntegrationRule associated with mesh element @a idx.
+   /// Get the IntegrationRule associated with mesh face @a idx.
    [[nodiscard]] const IntegrationRule &GetFaceIntRule(int idx) const
    { return *int_rule[GetGeometry(idx)]; }
 
-   /// @brief Returns the permuted index of the @a iq quadrature point in entity
-   /// @a idx.
-   ///
-   /// For tensor-product faces, returns the lexicographic index of the
-   /// quadrature point, oriented relative to "element 1".
+   /// Returns the permuted quadrature point index for tensor-product faces.
    [[nodiscard]] int GetPermutedIndex(int idx, int iq) const override;
 
-   /// @brief Get the face index (in the standard Mesh numbering) associated
-   /// with face @a idx in the FaceQuadratureSpace.
+   /// Get the face index in the standard Mesh numbering.
    [[nodiscard]] int GetMeshFaceIndex(int idx) const { return face_indices[idx]; }
 
-   /// @brief Returns the index associated with the face described by @a T.
-   ///
-   /// The index may differ from the mesh face or boundary element index
-   /// depending on the FaceType used to construct the FaceQuadratureSpace.
+   /// Returns the index associated with the face described by @a T.
    [[nodiscard]] int GetEntityIndex(const ElementTransformation &T) const override;
 
    /// Write the FaceQuadratureSpace to the stream @a out.
    void Save(std::ostream &out) const override;
 
-   // Factory methods for creating FaceQuadratureSpace instances
-
-   /// Create a shared_ptr FaceQuadratureSpace from a Mesh shared_ptr
-   static std::shared_ptr<FaceQuadratureSpace> Create(std::shared_ptr<Mesh> mesh, 
-                                                     int order, 
-                                                     FaceType face_type) {
+   /// Create a shared_ptr FaceQuadratureSpace from a Mesh shared_ptr.
+   static std::shared_ptr<FaceQuadratureSpace> Create(std::shared_ptr<Mesh> mesh,
+                                                      int order,
+                                                      FaceType face_type)
+   {
       return std::make_shared<FaceQuadratureSpace>(std::move(mesh), order, face_type);
    }
 
-   /// Create a shared_ptr FaceQuadratureSpace from a raw Mesh pointer (deprecated)
+   /// Create a shared_ptr FaceQuadratureSpace from a raw Mesh pointer.
    [[deprecated("Use Create() with std::shared_ptr<Mesh> instead")]]
-   static std::shared_ptr<FaceQuadratureSpace> Create(Mesh* mesh, int order, FaceType face_type) {
-      return std::make_shared<FaceQuadratureSpace>(ptr_utils::borrow_ptr(mesh), order, face_type);
+   static std::shared_ptr<FaceQuadratureSpace> Create(Mesh *mesh, int order,
+                                                      FaceType face_type)
+   {
+      return std::make_shared<FaceQuadratureSpace>(ptr_utils::borrow_ptr(mesh),
+                                                   order, face_type);
    }
 };
 
-}
+} // namespace mfem
 
 #endif

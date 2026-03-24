@@ -56,6 +56,20 @@ void QuadratureFunction::Save(std::ostream &os) const
    os.flush();
 }
 
+void QuadratureFunction::ProjectGridFunctionFallback(const GridFunction &gf)
+{
+   if (gf.VectorDim() == 1)
+   {
+      GridFunctionCoefficient coeff(&gf);
+      coeff.Coefficient::Project(*this);
+   }
+   else
+   {
+      VectorGridFunctionCoefficient coeff(&gf);
+      coeff.VectorCoefficient::Project(*this);
+   }
+}
+
 void QuadratureFunction::ProjectGridFunction(const GridFunction &gf)
 {
    SetVDim(gf.VectorDim());
@@ -68,27 +82,49 @@ void QuadratureFunction::ProjectGridFunction(const GridFunction &gf)
                                           ElementDofOrdering::LEXICOGRAPHIC :
                                           ElementDofOrdering::NATIVE;
 
+      // Use quadrature interpolator to go from E-vector to Q-vector
+      const QuadratureInterpolator *qi =
+         gf_fes.GetQuadratureInterpolator(*qs_elem);
+
+      // If quadrature interpolator doesn't support this space, then fallback
+      // on slower (non-device) version, and return early.
+      if (!qi)
+      {
+         ProjectGridFunctionFallback(gf);
+         return;
+      }
+
       // Use element restriction to go from L-vector to E-vector
       const Operator *R = gf_fes.GetElementRestriction(ordering);
       Vector e_vec(R->Height());
       R->Mult(gf, e_vec);
 
-      // Use quadrature interpolator to go from E-vector to Q-vector
-      const QuadratureInterpolator *qi =
-         gf_fes.GetQuadratureInterpolator(*qs_elem);
       qi->SetOutputLayout(QVectorLayout::byVDIM);
       qi->DisableTensorProducts(!use_tensor_products);
-      qi->Values(e_vec, *this);
+      qi->PhysValues(e_vec, *this);
    }
    else if (auto *qs_face = std::dynamic_pointer_cast<FaceQuadratureSpace>(qspace).get())
    {
       const FiniteElementSpace &gf_fes = *gf.FESpace();
+      const FaceType face_type = qs_face->GetFaceType();
       const bool use_tensor_products = UsesTensorBasis(gf_fes);
       const ElementDofOrdering ordering = use_tensor_products ?
                                           ElementDofOrdering::LEXICOGRAPHIC :
                                           ElementDofOrdering::NATIVE;
 
-      const FaceType face_type = qs_face->GetFaceType();
+      // Use quadrature interpolator to go from E-vector to Q-vector
+      const FaceQuadratureInterpolator *qi =
+         gf_fes.GetFaceQuadratureInterpolator(qspace->GetIntRule(0), face_type);
+
+      // If quadrature interpolator doesn't support this space, then fallback
+      // on slower (non-device) version, and return early. Also, currently,
+      // ElementDofOrdering::NATIVE in FaceRestriction, so fall back in that
+      // case too.
+      if (qi == nullptr || ordering == ElementDofOrdering::NATIVE)
+      {
+         ProjectGridFunctionFallback(gf);
+         return;
+      }
 
       // Use element restriction to go from L-vector to E-vector
       const Operator *R = gf_fes.GetFaceRestriction(
@@ -96,9 +132,6 @@ void QuadratureFunction::ProjectGridFunction(const GridFunction &gf)
       Vector e_vec(R->Height());
       R->Mult(gf, e_vec);
 
-      // Use quadrature interpolator to go from E-vector to Q-vector
-      const FaceQuadratureInterpolator *qi =
-         gf_fes.GetFaceQuadratureInterpolator(qspace->GetIntRule(0), face_type);
       qi->SetOutputLayout(QVectorLayout::byVDIM);
       qi->DisableTensorProducts(!use_tensor_products);
       qi->Values(e_vec, *this);
@@ -120,7 +153,7 @@ void QuadratureFunction::SaveVTU(std::ostream &os, VTKFormat format,
                                  int compression_level,
                                  const std::string &field_name) const
 {
-   os << R"(<VTKFile type="UnstructuredGrid" version="0.1")";
+   os << R"(<VTKFile type="UnstructuredGrid" version="2.2")";
    if (compression_level != 0)
    {
       os << R"( compressor="vtkZLibDataCompressor")";
@@ -290,19 +323,19 @@ void QuadratureFunction::Integrate(Vector &integrals) const
 // Add implementations for GetValues methods if needed
 void QuadratureFunction::GetValues(int idx, Vector &values)
 {
-   const int s_offset = qspace->offsets[idx];
-   const int sl_size = qspace->offsets[idx+1] - s_offset;
-   values.MakeRef(*this, vdim*s_offset, vdim*sl_size);
+   const int s_offset = qspace->Offset(idx);
+   const int sl_size = qspace->Offset(idx + 1) - s_offset;
+   values.MakeRef(*this, vdim * s_offset, vdim * sl_size);
 }
 
 void QuadratureFunction::GetValues(int idx, Vector &values) const
 {
-   const int s_offset = qspace->offsets[idx];
-   const int sl_size = qspace->offsets[idx+1] - s_offset;
-   values.SetSize(vdim*sl_size);
+   const int s_offset = qspace->Offset(idx);
+   const int sl_size = qspace->Offset(idx + 1) - s_offset;
+   values.SetSize(vdim * sl_size);
    values.HostWrite();
-   const real_t *q = HostRead() + vdim*s_offset;
-   for (int i = 0; i<values.Size(); i++)
+   const real_t *q = HostRead() + vdim * s_offset;
+   for (int i = 0; i < values.Size(); i++)
    {
       values(i) = *(q++);
    }
@@ -310,13 +343,13 @@ void QuadratureFunction::GetValues(int idx, Vector &values) const
 
 void QuadratureFunction::GetValues(int idx, const int ip_num, Vector &values)
 {
-   const int s_offset = qspace->offsets[idx] * vdim + ip_num * vdim;
+   const int s_offset = qspace->Offset(idx) * vdim + ip_num * vdim;
    values.MakeRef(*this, s_offset, vdim);
 }
 
 void QuadratureFunction::GetValues(int idx, const int ip_num, Vector &values) const
 {
-   const int s_offset = qspace->offsets[idx] * vdim + ip_num * vdim;
+   const int s_offset = qspace->Offset(idx) * vdim + ip_num * vdim;
    values.SetSize(vdim);
    values.HostWrite();
    const real_t *q = HostRead() + s_offset;
@@ -328,27 +361,27 @@ void QuadratureFunction::GetValues(int idx, const int ip_num, Vector &values) co
 
 void QuadratureFunction::GetValues(int idx, DenseMatrix &values)
 {
-   const int s_offset = qspace->offsets[idx];
-   const int sl_size = qspace->offsets[idx+1] - s_offset;
+   const int s_offset = qspace->Offset(idx);
+   const int sl_size = qspace->Offset(idx + 1) - s_offset;
    // Make the values matrix memory an alias of the quadrature function memory
    Memory<real_t> &values_mem = values.GetMemory();
    values_mem.Delete();
-   values_mem.MakeAlias(GetMemory(), vdim*s_offset, vdim*sl_size);
+   values_mem.MakeAlias(GetMemory(), vdim * s_offset, vdim * sl_size);
    values.SetSize(vdim, sl_size);
 }
 
 void QuadratureFunction::GetValues(int idx, DenseMatrix &values) const
 {
-   const int s_offset = qspace->offsets[idx];
-   const int sl_size = qspace->offsets[idx+1] - s_offset;
+   const int s_offset = qspace->Offset(idx);
+   const int sl_size = qspace->Offset(idx + 1) - s_offset;
    values.SetSize(vdim, sl_size);
    values.HostWrite();
-   const real_t *q = HostRead() + vdim*s_offset;
-   for (int j = 0; j<sl_size; j++)
+   const real_t *q = HostRead() + vdim * s_offset;
+   for (int j = 0; j < sl_size; j++)
    {
-      for (int i = 0; i<vdim; i++)
+      for (int i = 0; i < vdim; i++)
       {
-         values(i,j) = *(q++);
+         values(i, j) = *(q++);
       }
    }
 }
