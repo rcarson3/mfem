@@ -144,6 +144,23 @@ public:
        used later in the methods AddMultGradPA() and AssembleGradDiagonalPA().
        The state Vector @a x is an E-vector. */                                                           
    virtual void AssembleGradPA(const FiniteElementSpace &fes);
+   /// Method for partially assembled transposed action of the gradient.
+   /** Perform the action of operator y += K^T x where K is the gradient
+       (Jacobian) of the operator F at the linearization point set in
+       AssembleGradPA. The vectors @a x and @a y are E-vectors.
+
+       For symmetric tangent stiffness matrices, this is identical to
+       AddMultGradPA. For non-symmetric tangents (e.g., crystal plasticity
+       with non-associated flow), the transpose action differs from the
+       forward action. Subclasses must override this when the tangent is
+       potentially non-symmetric.
+
+       The default implementation aborts to flag missing overrides early.
+   */
+   virtual void AddMultTransposeGradPA(const Vector &x, Vector &y) const
+   {
+      MFEM_ABORT("AddMultTransposeGradPA not implemented for this integrator.");
+   }
    virtual void AssembleEA(const FiniteElementSpace &fes, Vector &emat);
 
    /// Method for partially assembled gradient action.

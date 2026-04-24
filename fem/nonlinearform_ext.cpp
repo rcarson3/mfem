@@ -123,6 +123,24 @@ void PANonlinearFormExtension::PAGradient::Mult(const Vector &x, Vector &y) cons
    ext.elemR->MultTranspose(ext.ye, y);
 }
 
+// Apply the transpose of the partially-assembled gradient operator. The
+// element-restriction structure is identical to the forward operation since
+// the global gradient K = R^T K_e R has transpose K^T = R^T K_e^T R, leaving
+// R and R^T in place. Only the per-integrator action differs, dispatching
+// to AddMultTransposeGradPA on each domain integrator.
+void PANonlinearFormExtension::PAGradient::MultTranspose(const Vector &x,
+                                                         Vector &y) const
+{
+   MFEM_PERF_SCOPE("PANonlinearFormExtension::PAGradient::MultTranspose");
+   ext.ye = 0.0;
+   ext.elemR->Mult(x, ext.xe);
+   for (int i = 0; i < ext.dnfi.Size(); ++i)
+   {
+      ext.dnfi[i]->AddMultTransposeGradPA(ext.xe, ext.ye);
+   }
+   ext.elemR->MultTranspose(ext.ye, y);
+}
+
 void PANonlinearFormExtension::PAGradient::AssembleDiagonal(Vector &diag) const
 {
    MFEM_ASSERT(diag.Size() == Height(),
@@ -208,6 +226,46 @@ void EANonlinearFormExtension::EAGradient::Mult(const Vector &x, Vector &y) cons
    ext.elemR->MultTranspose(ext.ye, y);
 }
 
+// Apply the transpose of the element-assembled gradient operator. Element
+// matrices A(i, j, e) are stored row-major with the forward kernel using
+// A(i, j, e) * X(i, e) summed over i. The transpose action reverses the
+// access pattern to A(j, i, e) * X(i, e), which is bitwise identical to
+// applying the matrix transpose at each element. The element-restriction
+// scatter R^T remains the same since R and R^T are unchanged under matrix
+// transposition (only the inner element block flips).
+void EANonlinearFormExtension::EAGradient::MultTranspose(const Vector &x,
+                                                         Vector &y) const
+{
+   MFEM_PERF_SCOPE("EANonlinearFormExtension::EAGradient::MultTranspose");
+   ext.ye = 0.0;
+   ext.elemR->Mult(x, ext.xe);
+   MFEM_PERF_BEGIN("EANonlinearFormExtension::EAGradient::MultTranspose::MatVecMult");
+   {
+      // LibBatchMult has no transpose interface; we always go through the
+      // explicit MFEM_FORALL loop here. This still runs on the device when
+      // the device backend is active.
+      const int NDOFS = ext.elemDofs;
+      auto X = Reshape(ext.xe.Read(), NDOFS, ext.ne);
+      auto Y = Reshape(ext.ye.ReadWrite(), NDOFS, ext.ne);
+      auto A = Reshape(ext.ea_data.Read(), NDOFS, NDOFS, ext.ne);
+      MFEM_FORALL(glob_j, ext.ne * NDOFS,
+      {
+         const int e = glob_j / NDOFS;
+         const int j = glob_j % NDOFS;
+         double res = 0.0;
+         for (int i = 0; i < NDOFS; i++)
+         {
+            // Forward:    res += A(i, j, e) * X(i, e);
+            // Transpose:  res += A(j, i, e) * X(i, e);
+            res += A(j, i, e) * X(i, e);
+         }
+         Y(j, e) += res;
+      });
+   }
+   MFEM_PERF_END("EANonlinearFormExtension::EAGradient::MultTranspose::MatVecMult");
+   ext.elemR->MultTranspose(ext.ye, y);
+}
+
 void EANonlinearFormExtension::EAGradient::AssembleDiagonal(Vector &diag) const
 {
    MFEM_ASSERT(diag.Size() == Height(),
@@ -276,6 +334,18 @@ void FANonlinearFormExtension::FAGradient::Mult(const Vector &x, Vector &y) cons
    // not certain this is the behavior we want but...
    y = 0.0;
    ext.mat->Mult(x, y);
+}
+
+// Apply the transpose of the fully-assembled gradient operator by delegating
+// to the underlying SparseMatrix's MultTranspose. This handles non-symmetric
+// tangent stiffness correctly since the stored sparse matrix preserves all
+// off-diagonal asymmetry from the assembled element matrices.
+void FANonlinearFormExtension::FAGradient::MultTranspose(const Vector &x,
+                                                         Vector &y) const
+{
+   MFEM_PERF_SCOPE("FANonlinearFormExtension::FAGradient::MultTranspose");
+   y = 0.0;
+   ext.mat->MultTranspose(x, y);
 }
 
 void FANonlinearFormExtension::FAGradient::AssembleDiagonal(Vector &diag) const

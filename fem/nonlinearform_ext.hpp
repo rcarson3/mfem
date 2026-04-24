@@ -70,6 +70,11 @@ private:
       /// Assumes that @a x and @a y are ldof Vector%s.
       void Mult(const Vector &x, Vector &y) const override;
 
+      /// Assumes that @a x and @a y are ldof Vector%s.
+      /// Applies the transpose of the partially-assembled gradient operator.
+      /// Calls AddMultTransposeGradPA on each domain integrator.
+      void MultTranspose(const Vector &x, Vector &y) const override;
+
       /// Assumes that @a g is an ldof Vector.
       void AssembleGrad(const Vector &g);
 
@@ -148,6 +153,11 @@ private:
       /// Assumes that @a x and @a y are ldof Vector%s.
       virtual void Mult(const Vector &x, Vector &y) const;
 
+      /// Assumes that @a x and @a y are ldof Vector%s.
+      /// Applies the transpose of the element-assembled gradient operator.
+      /// This transposes the stored element matrices: y = sum_e R_e^T K_e^T R_e x.
+      virtual void MultTranspose(const Vector &x, Vector &y) const;
+
       /// Assumes that @a g is an ldof Vector.
       void AssembleGrad(const Vector &g);
 
@@ -214,6 +224,10 @@ private:
 
       /// Assumes that @a x and @a y are ldof Vector%s.
       virtual void Mult(const Vector &x, Vector &y) const;
+
+      /// Assumes that @a x and @a y are ldof Vector%s.
+      /// Delegates to the SparseMatrix MultTranspose.
+      virtual void MultTranspose(const Vector &x, Vector &y) const;
 
       /// Assumes that @a g is an ldof Vector.
       void AssembleGrad(const Vector &g);
