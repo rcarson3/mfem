@@ -162,7 +162,7 @@ EANonlinearFormExtension::EANonlinearFormExtension(const NonlinearForm *nlf, con
   PANonlinearFormExtension(nlf, edf_), eaGrad(*this)
 {
    ne = fes.GetMesh()->GetNE();
-   elemDofs = fes.GetFE(0)->GetDof() * fes.GetFE(0)->GetDim();
+   elemDofs = fes.GetTypicalFE()->GetDof() * fes.GetTypicalFE()->GetDim();
    ea_data.SetSize(ne * elemDofs * elemDofs, Device::GetMemoryType());
    ea_data.UseDevice(true);
    eaGradDT.UseExternalData(ea_data.ReadWrite(), elemDofs, elemDofs, ne);
