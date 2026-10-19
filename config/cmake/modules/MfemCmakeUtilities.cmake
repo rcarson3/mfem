@@ -917,7 +917,13 @@ function(mfem_export_mk_files)
     if (MFEM_USE_CUDA)
       set(MFEM_CXXFLAGS "${MFEM_CXXFLAGS} ${CMAKE_CUDA_FLAGS}")
       if (MFEM_CUDA_COMPILER_IS_NVCC)
-        set(MFEM_CXXFLAGS "-x=cu ${MFEM_CXXFLAGS} -ccbin ${CMAKE_CXX_COMPILER} --forward-unknown-to-host-compiler")
+        # The host compiler of nvcc: CMAKE_CXX_COMPILER may itself be nvcc.
+        if (CMAKE_CUDA_HOST_COMPILER)
+          set(MFEM_NVCC_CCBIN ${CMAKE_CUDA_HOST_COMPILER})
+        else()
+          set(MFEM_NVCC_CCBIN ${CMAKE_CXX_COMPILER})
+        endif()
+        set(MFEM_CXXFLAGS "-x=cu ${MFEM_CXXFLAGS} -ccbin ${MFEM_NVCC_CCBIN} --forward-unknown-to-host-compiler")
         # The following intentionally hides CUDA deprecation warnings
         foreach(ENTRY IN LISTS CUDAToolkit_INCLUDE_DIRS)
           set(MFEM_CXXFLAGS "${MFEM_CXXFLAGS} -isystem ${ENTRY}")
@@ -1080,6 +1086,20 @@ function(mfem_export_mk_files)
     else()
       set(MFEM_EXT_LIBS "${MFEM_EXT_LIBS} ${lib}")
     endif()
+  endforeach()
+
+  # Packages found as CMake targets (e.g. RAJA, with camp) are not in
+  # TPL_LIBRARIES: add their include directories, options and libraries too.
+  foreach(tgt ${TPL_TARGETS})
+    mfem_get_target_options(${tgt} CompileOpts2 LinkOpts2)
+    string(GENEX_STRIP "${CompileOpts2}" CompileOpts)
+    string(GENEX_STRIP "${LinkOpts2}" LinkOpts)
+    foreach(LOpt IN LISTS LinkOpts)
+      set(MFEM_EXT_LIBS "${MFEM_EXT_LIBS} ${LOpt}")
+    endforeach()
+    foreach(COpt IN LISTS CompileOpts)
+      set(MFEM_TPLFLAGS "${MFEM_TPLFLAGS} ${COpt}")
+    endforeach()
   endforeach()
 
   # Create the build-tree version of 'config.mk'
