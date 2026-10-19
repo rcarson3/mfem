@@ -11,16 +11,31 @@
 
 // Internal header: GPU kernels for batched matrix-vector products, used by
 // NativeBatchedLinAlg for a single right-hand side, and their tuning
-// parameters. It is included by native.cpp.
+// parameters. It is included by native.cpp and by the tuning benchmark
+// config/tune_batched_gemv.cpp.
 //
 // The tuning parameters are the MFEM_GEMV_* macros below. Their defaults depend
-// on the GPU vendor (CUDA or HIP build).
+// on the GPU vendor (CUDA or HIP build). To tune them for a specific GPU, run
+//    python3 config/tune_batched_gemv.py --mfem-dir <MFEM build or install>
+// and rebuild MFEM with the generated header given as MFEM_BATCHED_GEMV_TUNING
+// (a CMake cache variable or a 'make config' variable). See INSTALL.
 
 #ifndef MFEM_BATCHED_NATIVE_GEMV_HPP
 #define MFEM_BATCHED_NATIVE_GEMV_HPP
 
 #include "../../config/config.hpp"
 #include "../../general/forall.hpp"
+
+#if defined(MFEM_BATCHED_GEMV_TUNING) && !defined(MFEM_GEMV_IGNORE_TUNING)
+#include MFEM_BATCHED_GEMV_TUNING
+#endif
+
+#ifdef MFEM_GEMV_TUNED_FOR_HIP
+#if (MFEM_GEMV_TUNED_FOR_HIP && !defined(MFEM_USE_HIP)) || \
+    (!MFEM_GEMV_TUNED_FOR_HIP && defined(MFEM_USE_HIP))
+#error "MFEM_BATCHED_GEMV_TUNING was generated for a different GPU backend"
+#endif
+#endif
 
 // Tuning parameters. "Small" kernels handle m, n <= 32, "medium" kernels
 // handle 32 < max(m, n) <= 128; N is y = A x and T is y = A^T x.

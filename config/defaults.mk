@@ -147,6 +147,9 @@ MFEM_USE_OPENMP        = NO
 MFEM_USE_LEGACY_OPENMP = NO
 MFEM_USE_MEMALLOC      = YES
 MFEM_TIMER_TYPE        = $(if $(NOTMAC),2,4)
+# Header from config/tune_batched_gemv.py with tuned batched gemv GPU kernel
+# parameters, or NO
+MFEM_BATCHED_GEMV_TUNING = NO
 MFEM_USE_SUNDIALS      = NO
 MFEM_USE_SUITESPARSE   = NO
 MFEM_USE_SUPERLU       = NO

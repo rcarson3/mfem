@@ -615,6 +615,29 @@ if (NOT DEFINED MFEM_TIMER_TYPE)
   endif()
 endif()
 
+# MFEM_BATCHED_GEMV_TUNING: header from config/tune_batched_gemv.py. It is
+# copied (or an empty header is written) to a fixed path in the build tree, so
+# that config.hpp does not change with the tuning and changing the tuning only
+# recompiles the files that include it.
+set(MFEM_BATCHED_GEMV_TUNING_HEADER
+  "${PROJECT_BINARY_DIR}/config/_batched_gemv_tuning.hpp")
+if (MFEM_BATCHED_GEMV_TUNING)
+  get_filename_component(MFEM_BATCHED_GEMV_TUNING "${MFEM_BATCHED_GEMV_TUNING}"
+    ABSOLUTE)
+  if (NOT EXISTS "${MFEM_BATCHED_GEMV_TUNING}")
+    message(FATAL_ERROR
+      "MFEM_BATCHED_GEMV_TUNING not found: ${MFEM_BATCHED_GEMV_TUNING}")
+  endif()
+  message(STATUS "Batched gemv tuning: ${MFEM_BATCHED_GEMV_TUNING}")
+  configure_file("${MFEM_BATCHED_GEMV_TUNING}"
+    "${MFEM_BATCHED_GEMV_TUNING_HEADER}" COPYONLY)
+else()
+  file(WRITE "${MFEM_BATCHED_GEMV_TUNING_HEADER}.in"
+    "// No MFEM_BATCHED_GEMV_TUNING: defaults of linalg/batched/native_gemv.hpp\n")
+  configure_file("${MFEM_BATCHED_GEMV_TUNING_HEADER}.in"
+    "${MFEM_BATCHED_GEMV_TUNING_HEADER}" COPYONLY)
+endif()
+
 # Without this, CMake 3.21.1 (and 3.20.2) run into CMake Errors like the following:
 # CMake Error at config/cmake/modules/MfemCmakeUtilities.cmake:60 (add_library):
 #   Target "mfem" links to target "Threads::Threads" but the target was not

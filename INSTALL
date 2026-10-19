@@ -363,6 +363,16 @@ MFEM_TIMER_TYPE = 0/1/2/3/4/5/6/NO
       6  - use MPI_Wtime from <mpi.h>
       NO - use option 3 if the compiler macro _WIN32 is defined, 0 otherwise
 
+MFEM_BATCHED_GEMV_TUNING = <path>/NO
+   Header with tuned parameters for the native batched matrix-vector product
+   GPU kernels (BatchedLinAlg::Mult with one vector per matrix, used e.g. by
+   element-assembled operators). Without it, defaults for the GPU vendor (CUDA
+   or HIP) are used. To generate it for the GPU of the current machine, build
+   MFEM (with CUDA or HIP), then run
+      python3 config/tune_batched_gemv.py --mfem-dir <MFEM build or install>
+   which writes the header and prints how to rebuild MFEM with it. Use an
+   absolute path. Any change of this option requires rebuilding MFEM.
+
 MFEM_USE_SUNDIALS = YES/NO
    Enable MFEM time integrators and non-linear solvers based on the SUNDIALS
    library. When enabled, this option uses the SUNDIALS_* library options,
@@ -1048,6 +1058,7 @@ MFEM_USE_LEGACY_OPENMP
 MFEM_USE_OPENMP
 MFEM_USE_MEMALLOC
 MFEM_TIMER_TYPE - Set automatically, can be overwritten.
+MFEM_BATCHED_GEMV_TUNING - Path to a header from config/tune_batched_gemv.py.
 MFEM_USE_SUITESPARSE
 MFEM_USE_SUPERLU
 MFEM_USE_MUMPS
