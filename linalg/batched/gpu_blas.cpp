@@ -13,6 +13,7 @@
 #include "../../general/forall.hpp"
 
 #if defined(MFEM_USE_CUDA)
+#include <cuda_runtime_api.h> // CUDART_VERSION
 #define MFEM_cu_or_hip(stub) cu##stub
 #define MFEM_CU_or_HIP(stub) CU##stub
 #elif defined(MFEM_USE_HIP)
@@ -99,6 +100,22 @@ void GPUBlasBatchedLinAlg::AddMult(const DenseTensor &A, const Vector &x,
 
    const auto op_A = tr ? MFEM_CU_or_HIP(BLAS_OP_T) : MFEM_CU_or_HIP(BLAS_OP_N);
    const auto op_B = MFEM_CU_or_HIP(BLAS_OP_N);
+
+#if defined(MFEM_USE_HIP) || (defined(MFEM_USE_CUDA) && CUDART_VERSION >= 11070)
+   // A single right-hand side is a batched matrix-vector product. The batched
+   // gemm kernels are tuned for larger k and are much slower than gemv here.
+   // Unlike gemm, gemv takes the dimensions of A as stored, not of op(A).
+   // cuBLAS only provides the strided batched gemv from CUDA 11.7 onwards.
+   if (k == 1)
+   {
+      const blasStatus_t status = MFEM_GPUBLAS_PREFIX(gemvStridedBatched)(
+                                     GPUBlas::Handle(), op_A, A.SizeI(),
+                                     A.SizeJ(), &alpha, d_A, A.SizeI(), m*n,
+                                     d_x, 1, n, &beta, d_y, 1, m, n_mat);
+      MFEM_VERIFY(status == MFEM_BLAS_SUCCESS, "GPU BLAS error.");
+      return;
+   }
+#endif
 
    const blasStatus_t status = MFEM_GPUBLAS_PREFIX(gemmStridedBatched)(
                                   GPUBlas::Handle(), op_A, op_B, m, k, n,

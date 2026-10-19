@@ -84,6 +84,17 @@ void MagmaBatchedLinAlg::AddMult(const DenseTensor &A, const Vector &x,
 
    magma_trans_t magma_op = tr ? MagmaTrans : MagmaNoTrans;
 
+   // A single right-hand side is a batched matrix-vector product, which MAGMA's
+   // batched gemv handles far faster than gemm (it has dedicated kernels for
+   // small matrices). Unlike gemm, gemv takes the dimensions of A as stored.
+   if (k == 1)
+   {
+      MFEM_MAGMABLAS_PREFIX(gemv_batched_strided)(
+         magma_op, A.SizeI(), A.SizeJ(), alpha, d_A, A.SizeI(), m*n,
+         d_x, 1, n, beta, d_y, 1, m, n_mat, Magma::Queue());
+      return;
+   }
+
    MFEM_MAGMABLAS_PREFIX(gemm_batched_strided)(
       magma_op, MagmaNoTrans, m, k, n, alpha, d_A, A.SizeI(), m*n, d_x, n, n*k,
       beta, d_y, m, m*k, n_mat, Magma::Queue());
