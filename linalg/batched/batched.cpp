@@ -51,21 +51,33 @@ BatchedLinAlg &BatchedLinAlg::Instance()
    return instance;
 }
 
+BatchedLinAlg::Backend BatchedLinAlg::MultBackend(const DenseTensor &A,
+                                                  const Vector &x, Op op)
+{
+   const Backend active = Instance().active_backend;
+   if (active != GPU_BLAS) { return active; }
+   // A single right-hand side: the native gemv kernels are faster than the
+   // batched gemv of the vendor BLAS libraries.
+   const int n_in = (op == Op::T) ? A.SizeI() : A.SizeJ();
+   const bool gemv = (x.Size() == n_in * A.SizeK());
+   return gemv ? NATIVE : active;
+}
+
 void BatchedLinAlg::AddMult(const DenseTensor &A, const Vector &x, Vector &y,
                             real_t alpha, real_t beta, Op op)
 {
-   Get(Instance().active_backend).AddMult(A, x, y, alpha, beta, op);
+   Get(MultBackend(A, x, op)).AddMult(A, x, y, alpha, beta, op);
 }
 
 void BatchedLinAlg::Mult(const DenseTensor &A, const Vector &x, Vector &y)
 {
-   Get(Instance().active_backend).Mult(A, x, y);
+   Get(MultBackend(A, x, Op::N)).Mult(A, x, y);
 }
 
 void BatchedLinAlg::MultTranspose(const DenseTensor &A, const Vector &x,
                                   Vector &y)
 {
-   Get(Instance().active_backend).MultTranspose(A, x, y);
+   Get(MultBackend(A, x, Op::T)).MultTranspose(A, x, y);
 }
 
 void BatchedLinAlg::Invert(DenseTensor &A)

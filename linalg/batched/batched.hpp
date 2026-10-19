@@ -65,6 +65,8 @@ private:
    BatchedLinAlg();
    /// Return the singleton instance.
    static BatchedLinAlg &Instance();
+   /// The backend used by AddMult() for the given operands, see AddMult().
+   static Backend MultBackend(const DenseTensor &A, const Vector &x, Op op);
 public:
    /// @brief Computes $y = \alpha A^{op} x + \beta y$.
    ///
@@ -72,6 +74,11 @@ public:
    /// $A$ is a block diagonal matrix, represented by the DenseTensor @a A with
    /// shape (m, n, n_mat). $x$ has shape (tr?m:n, k, n_mat), and $y$ has shape
    /// (tr?n:m, k, n_mat), where 'tr' is true in the transposed case.
+   ///
+   /// When the active backend is GPU_BLAS and k = 1 (a batched matrix-vector
+   /// product), the NATIVE backend is used instead: its gemv kernels are much
+   /// faster than the batched gemv of cuBLAS/hipBLAS for small and medium
+   /// matrices. Get(GPU_BLAS).AddMult() still calls the vendor library.
    static void AddMult(const DenseTensor &A, const Vector &x, Vector &y,
                        real_t alpha = 1.0, real_t beta = 1.0,
                        Op op = Op::N);
