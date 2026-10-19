@@ -47,8 +47,8 @@ constexpr bool mfem_use_gpu = true;
 #define MFEM_BLOCK_ID(k) blockIdx.k
 #define MFEM_THREAD_ID(k) threadIdx.k
 #define MFEM_THREAD_SIZE(k) blockDim.k
-#define MFEM_FOREACH_THREAD(i,k,N) for(int i=threadIdx.k; i<N; i+=blockDim.k)
-#define MFEM_FOREACH_THREAD_DIRECT(i,k,N) if(const int i=threadIdx.k; i<N)
+#define MFEM_FOREACH_THREAD(i,k,N) for(int i=threadIdx.k; i<(N); i+=blockDim.k)
+#define MFEM_FOREACH_THREAD_DIRECT(i,k,N) if(const int i=threadIdx.k; i<(N))
 #endif // defined(__CUDA_ARCH__)
 #endif // defined(MFEM_USE_CUDA) && defined(__CUDACC__)
 
