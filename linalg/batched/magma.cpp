@@ -10,6 +10,7 @@
 // CONTRIBUTING.md for details.
 
 #include "magma.hpp"
+#include "gpu_blas.hpp"
 #include "../lapack.hpp"
 #include "../../general/forall.hpp"
 
@@ -32,7 +33,19 @@ Magma::Magma()
    MFEM_VERIFY(status == MAGMA_SUCCESS, "Error initializing MAGMA.");
    magma_device_t dev;
    magma_getdevice(&dev);
+   // Run on the default stream with MFEM's GPU BLAS handle, like the rest of
+   // MFEM. magma_queue_create would make a new stream, and MAGMA kernels
+   // queued there are not ordered with the kernels that produce and consume
+   // their data (EA gradients diverge unless CUDA_LAUNCH_BLOCKING=1).
+#if defined(MFEM_USE_CUDA)
+   magma_queue_create_from_cuda(dev, nullptr, GPUBlas::Handle(), nullptr,
+                                &queue);
+#elif defined(MFEM_USE_HIP)
+   magma_queue_create_from_hip(dev, nullptr, GPUBlas::Handle(), nullptr,
+                               &queue);
+#else
    magma_queue_create(dev, &queue);
+#endif
 }
 
 Magma::~Magma()
