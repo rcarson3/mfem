@@ -62,6 +62,7 @@ void MagmaBatchedLinAlg::AddMult(const DenseTensor &A, const Vector &x,
    const int m = tr ? A.SizeJ() : A.SizeI();
    const int n = tr ? A.SizeI() : A.SizeJ();
    const int n_mat = A.SizeK();
+   if (n_mat == 0) { return; }
    const int k = x.Size() / n / n_mat;
 
    auto d_A = A.Read();
@@ -71,7 +72,7 @@ void MagmaBatchedLinAlg::AddMult(const DenseTensor &A, const Vector &x,
    magma_trans_t magma_op = tr ? MagmaTrans : MagmaNoTrans;
 
    MFEM_MAGMABLAS_PREFIX(gemm_batched_strided)(
-      magma_op, MagmaNoTrans, m, k, n, alpha, d_A, m, m*n, d_x, n, n*k,
+      magma_op, MagmaNoTrans, m, k, n, alpha, d_A, A.SizeI(), m*n, d_x, n, n*k,
       beta, d_y, m, m*k, n_mat, Magma::Queue());
 }
 

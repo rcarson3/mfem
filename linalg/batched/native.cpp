@@ -174,7 +174,7 @@ void NativeBatchedLinAlg::LUSolve(const DenseTensor &LU, const Array<int> &P,
 
    auto d_LU = Reshape(LU.Read(), m, m, n_mat);
    auto d_P = Reshape(P.Read(), m, n_mat);
-   auto d_x = Reshape(x.Write(), m, n_rhs, n_mat);
+   auto d_x = Reshape(x.ReadWrite(), m, n_rhs, n_mat);
 
    mfem::forall(n_mat * n_rhs, [=] MFEM_HOST_DEVICE (int idx)
    {
