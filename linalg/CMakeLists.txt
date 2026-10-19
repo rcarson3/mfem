@@ -45,6 +45,7 @@ list(APPEND HDRS
   batched/gpu_blas.hpp
   batched/magma.hpp
   batched/native.hpp
+  batched/native_gemv.hpp
   batched/solver.hpp
   blockmatrix.hpp
   blockoperator.hpp

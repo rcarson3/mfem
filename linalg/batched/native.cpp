@@ -13,6 +13,7 @@
 #include "native.hpp"
 #include "../dtensor.hpp"
 #include "../../general/forall.hpp"
+#include "native_gemv.hpp"
 
 namespace mfem
 {
@@ -26,12 +27,56 @@ void NativeBatchedLinAlg::AddMult(const DenseTensor &A, const Vector &x,
    const int m = A.SizeI();
    const int n = A.SizeJ();
    const int n_mat = A.SizeK();
+   if (n_mat == 0) { return; }
    const int k = x.Size() / (tr ? m : n) / n_mat;
 
-   auto d_A = Reshape(A.Read(), m, n, n_mat);
-   auto d_x = Reshape(x.Read(), (tr ? m : n), k, n_mat);
-   auto d_y = Reshape(beta == 0.0 ? y.Write() : y.ReadWrite(),
-                      (tr ? n : m), k, n_mat);
+   const real_t *p_A = A.Read();
+   const real_t *p_x = x.Read();
+   real_t *p_y = beta == 0.0 ? y.Write() : y.ReadWrite();
+   auto d_A = Reshape(p_A, m, n, n_mat);
+   auto d_x = Reshape(p_x, (tr ? m : n), k, n_mat);
+   auto d_y = Reshape(p_y, (tr ? n : m), k, n_mat);
+
+   // A single right-hand side is a batched matrix-vector product.
+   if (k == 1)
+   {
+      const int n_out = tr ? n : m;
+      const int n_in = tr ? m : n;
+      if (alpha == 0.0)
+      {
+         // Do not touch A or x, so that NaN or Inf there do not propagate.
+         if (beta == 1.0) { return; }
+         mfem::forall(n_mat * n_out, [=] MFEM_HOST_DEVICE (int idx)
+         {
+            const int i = idx % n_out, e = idx / n_out;
+            d_y(i, 0, e) = (beta == 0.0) ? 0.0 : beta * d_y(i, 0, e);
+         });
+         return;
+      }
+      // Tuned kernels for small and medium matrices on a GPU.
+      if (Device::Allows(Backend::CUDA | Backend::HIP | Backend::RAJA_CUDA |
+                         Backend::RAJA_HIP) &&
+          internal::batched_gemv::DeviceGemv(tr, m, n, n_mat, p_A, p_x, p_y,
+                                             alpha, beta))
+      {
+         return;
+      }
+      // Otherwise thread over every output entry rather than only over the
+      // matrices, so that a GPU has enough parallelism.
+      mfem::forall(n_mat * n_out, [=] MFEM_HOST_DEVICE (int idx)
+      {
+         const int i = idx % n_out;
+         const int e = idx / n_out;
+         real_t dot = 0.0;
+         for (int j = 0; j < n_in; j++)
+         {
+            dot += (tr ? d_A(j, i, e) : d_A(i, j, e)) * d_x(j, 0, e);
+         }
+         d_y(i, 0, e) = (beta == 0.0) ? alpha * dot
+                                      : alpha * dot + beta * d_y(i, 0, e);
+      });
+      return;
+   }
 
    if (tr)
    {
