@@ -14,6 +14,7 @@
 
 #include "../config/config.hpp"
 #include "fespace.hpp"
+#include "../linalg/batched/batched.hpp"
 
 namespace mfem
 {
@@ -131,8 +132,6 @@ public:
    void Update() override;
 };
 
-class DenseTensor;
-class LibBatchMult;
 /// Data and methods for element-assembled bilinear forms
 class EANonlinearFormExtension : public PANonlinearFormExtension
 {
@@ -161,6 +160,9 @@ private:
       /// Assumes that @a g is an ldof Vector.
       void AssembleGrad(const Vector &g);
 
+      /// Apply op(A_e) to every element vector of ext.xe, writing ext.ye.
+      void ElementMult(BatchedLinAlg::Op op) const;
+
       /// Assemble the diagonal of the gradient into the ldof Vector @a diag.
       virtual void AssembleDiagonal(Vector &diag) const;
 
@@ -183,11 +185,9 @@ protected:
 #endif
    mutable int ne;
    mutable int elemDofs;
-   // The element matrices are stored row major
+   // Element matrices ea_data(trial, test, elem), trial index fastest
    mutable Vector ea_data;
    mutable EAGradient eaGrad;
-   mutable DenseTensor eaGradDT;
-   LibBatchMult* batchMult = nullptr;
 
 public:
    EANonlinearFormExtension(const NonlinearForm *nlf, const ElementDofOrdering edf = ElementDofOrdering::LEXICOGRAPHIC);
@@ -205,7 +205,6 @@ public:
        which enables support for the method FormSystemOperator to define the
        matrix-free global true-dof gradient with imposed boundary conditions. */
    virtual Operator &GetGradient(const Vector &x) const override;
-   ~EANonlinearFormExtension();
 };
 
 /// Data and methods for fully-assembled bilinear forms

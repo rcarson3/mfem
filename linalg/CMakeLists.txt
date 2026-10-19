@@ -36,7 +36,6 @@ list(APPEND SRCS
   sparsesmoothers.cpp
   symmat.cpp
   vector.cpp
-  libBatchSolver.cpp
   )
 
 list(APPEND HDRS
@@ -78,7 +77,6 @@ list(APPEND HDRS
   ttensor.hpp
   tensor.hpp
   vector.hpp
-  libBatchSolver.hpp
   )
 
 if (MFEM_USE_MPI)

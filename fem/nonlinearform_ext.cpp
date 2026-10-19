@@ -16,7 +16,7 @@
 #include "ceed/interface/util.hpp"
 #include "../general/forall.hpp"
 #include "../linalg/densemat.hpp"
-#include "../linalg/libBatchSolver.hpp"
+#include "../linalg/batched/batched.hpp"
 
 namespace mfem
 {
@@ -165,18 +165,6 @@ EANonlinearFormExtension::EANonlinearFormExtension(const NonlinearForm *nlf, con
    elemDofs = fes.GetTypicalFE()->GetDof() * fes.GetTypicalFE()->GetDim();
    ea_data.SetSize(ne * elemDofs * elemDofs, Device::GetMemoryType());
    ea_data.UseDevice(true);
-   eaGradDT.UseExternalData(ea_data.ReadWrite(), elemDofs, elemDofs, ne);
-   if (Device::Allows(Backend::DEVICE_MASK))
-   {
-      batchMult = new LibBatchMult(eaGradDT);
-   }
-}
-
-EANonlinearFormExtension::~EANonlinearFormExtension()
-{
-  if (batchMult) {
-      delete batchMult;
-  }
 }
 
 EANonlinearFormExtension::EAGradient::EAGradient(const EANonlinearFormExtension &e):
@@ -190,78 +178,41 @@ void EANonlinearFormExtension::EAGradient::AssembleGrad(const Vector &g)
    {
       ext.dnfi[i]->AssembleGradEA(ext.xe, ext.fes, ext.ea_data);
    }
-   ext.eaGradDT.UseExternalData(ext.ea_data.ReadWrite(), ext.elemDofs, ext.elemDofs, ext.ne);
+}
+
+// Element matrices A(i, j, e) couple input (trial) dof i to output (test) dof
+// j, with i the fastest index. As a column-major block of a DenseTensor, the
+// element action y_e(j) = sum_i A(i, j, e) x_e(i) is therefore y_e = A_e^T x_e,
+// and the transpose action is y_e = A_e x_e. The element-restriction scatter
+// R^T is the same for both, since only the inner element block flips.
+void EANonlinearFormExtension::EAGradient::ElementMult(BatchedLinAlg::Op op) const
+{
+   // Alias ea_data every call rather than keeping a member DenseTensor: an
+   // alias copies the validity flags of ea_data at the time it is made, so it
+   // must be made after the element matrices are assembled.
+   DenseTensor A;
+   A.NewMemoryAndSize(ext.ea_data.GetMemory(), ext.elemDofs, ext.elemDofs,
+                      ext.ne, false);
+   BatchedLinAlg::AddMult(A, ext.xe, ext.ye, 1.0, 0.0, op);
 }
 
 void EANonlinearFormExtension::EAGradient::Mult(const Vector &x, Vector &y) const
 {
    MFEM_PERF_SCOPE("EANonlinearFormExtension::EAGradient::Mult");
-   ext.ye = 0.0;
    ext.elemR->Mult(x, ext.xe);
    MFEM_PERF_BEGIN("EANonlinearFormExtension::EAGradient::Mult::MatVecMult");
-   // Apply the Element Matrices
-   if (ext.batchMult)
-   {
-      ext.batchMult->Mult(ext.xe, ext.ye);
-   }
-   else
-   {
-      const int NDOFS = ext.elemDofs;
-      auto X = Reshape(ext.xe.Read(), NDOFS, ext.ne);
-      auto Y = Reshape(ext.ye.ReadWrite(), NDOFS, ext.ne);
-      auto A = Reshape(ext.ea_data.Read(), NDOFS, NDOFS, ext.ne);
-      MFEM_FORALL(glob_j, ext.ne * NDOFS,
-      {
-         const int e = glob_j / NDOFS;
-         const int j = glob_j % NDOFS;
-         double res = 0.0;
-         for (int i = 0; i < NDOFS; i++)
-         {
-            res += A(i, j, e) * X(i, e);
-         }
-         Y(j, e) += res;
-      });
-   }
+   ElementMult(BatchedLinAlg::Op::T);
    MFEM_PERF_END("EANonlinearFormExtension::EAGradient::Mult::MatVecMult");
    ext.elemR->MultTranspose(ext.ye, y);
 }
 
-// Apply the transpose of the element-assembled gradient operator. Element
-// matrices A(i, j, e) are stored row-major with the forward kernel using
-// A(i, j, e) * X(i, e) summed over i. The transpose action reverses the
-// access pattern to A(j, i, e) * X(i, e), which is bitwise identical to
-// applying the matrix transpose at each element. The element-restriction
-// scatter R^T remains the same since R and R^T are unchanged under matrix
-// transposition (only the inner element block flips).
 void EANonlinearFormExtension::EAGradient::MultTranspose(const Vector &x,
                                                          Vector &y) const
 {
    MFEM_PERF_SCOPE("EANonlinearFormExtension::EAGradient::MultTranspose");
-   ext.ye = 0.0;
    ext.elemR->Mult(x, ext.xe);
    MFEM_PERF_BEGIN("EANonlinearFormExtension::EAGradient::MultTranspose::MatVecMult");
-   {
-      // LibBatchMult has no transpose interface; we always go through the
-      // explicit MFEM_FORALL loop here. This still runs on the device when
-      // the device backend is active.
-      const int NDOFS = ext.elemDofs;
-      auto X = Reshape(ext.xe.Read(), NDOFS, ext.ne);
-      auto Y = Reshape(ext.ye.ReadWrite(), NDOFS, ext.ne);
-      auto A = Reshape(ext.ea_data.Read(), NDOFS, NDOFS, ext.ne);
-      MFEM_FORALL(glob_j, ext.ne * NDOFS,
-      {
-         const int e = glob_j / NDOFS;
-         const int j = glob_j % NDOFS;
-         double res = 0.0;
-         for (int i = 0; i < NDOFS; i++)
-         {
-            // Forward:    res += A(i, j, e) * X(i, e);
-            // Transpose:  res += A(j, i, e) * X(i, e);
-            res += A(j, i, e) * X(i, e);
-         }
-         Y(j, e) += res;
-      });
-   }
+   ElementMult(BatchedLinAlg::Op::N);
    MFEM_PERF_END("EANonlinearFormExtension::EAGradient::MultTranspose::MatVecMult");
    ext.elemR->MultTranspose(ext.ye, y);
 }
