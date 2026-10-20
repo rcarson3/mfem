@@ -789,6 +789,11 @@ endif()
 set_target_properties(mfem PROPERTIES VERSION "${mfem_VERSION}")
 set_target_properties(mfem PROPERTIES SOVERSION "${mfem_VERSION}")
 
+# The batched gemv tuning header the build uses (installed headers find their
+# installed copy instead)
+target_compile_definitions(mfem PRIVATE
+  "MFEM_BATCHED_GEMV_TUNING_FILE=\"${MFEM_BATCHED_GEMV_TUNING_HEADER}\"")
+
 # If building out-of-source, define MFEM_CONFIG_FILE to point to the config file
 # inside the build directory.
 if (NOT ("${PROJECT_SOURCE_DIR}" STREQUAL "${PROJECT_BINARY_DIR}"))
@@ -989,6 +994,7 @@ endif()
 
 # Install the configuration header files
 install(FILES ${PROJECT_BINARY_DIR}/config/_config.hpp
+  ${MFEM_BATCHED_GEMV_TUNING_HEADER}
   ${PROJECT_SOURCE_DIR}/config/config.hpp
   ${PROJECT_SOURCE_DIR}/config/tconfig.hpp
   DESTINATION ${INSTALL_INCLUDE_DIR}/mfem/config)

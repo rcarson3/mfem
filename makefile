@@ -483,8 +483,12 @@ OKL_DIRS = fem
 lib: $(if $(static),$(BLD)libmfem.a) $(if $(shared),$(BLD)libmfem.$(SO_EXT))
 
 # Flags used for compiling all source files.
+# The batched gemv tuning header the build uses (installed headers find their
+# installed copy instead)
+TUNING_FILE_DEF = $(if $(filter-out NO,$(MFEM_BATCHED_GEMV_TUNING)),\
+ -DMFEM_BATCHED_GEMV_TUNING_FILE='"$(MFEM_BATCHED_GEMV_TUNING)"')
 MFEM_BUILD_FLAGS = $(MFEM_PICFLAG) $(MFEM_CPPFLAGS) $(MFEM_CXXFLAGS)\
- $(MFEM_TPLFLAGS) $(CONFIG_FILE_DEF)
+ $(MFEM_TPLFLAGS) $(CONFIG_FILE_DEF) $(TUNING_FILE_DEF)
 
 # Rules for compiling all source files.
 $(OBJECT_FILES): $(BLD)%.o: $(SRC)%.cpp $(CONFIG_MK)
@@ -649,6 +653,10 @@ install: $(if $(static),$(BLD)libmfem.a) $(if $(shared),$(BLD)libmfem.$(SO_EXT))
 	$(INSTALLDEF) $(BLD)config/_config.hpp $(PREFIX_INC)/mfem/config
 	$(INSTALLDEF) $(SRC)config/config.hpp $(PREFIX_INC)/mfem/config
 	$(INSTALLDEF) $(SRC)config/tconfig.hpp $(PREFIX_INC)/mfem/config
+ifneq ($(MFEM_BATCHED_GEMV_TUNING),NO)
+	$(INSTALLDEF) $(MFEM_BATCHED_GEMV_TUNING) \
+	   $(PREFIX_INC)/mfem/config/_batched_gemv_tuning.hpp
+endif
 # install remaining includes in each subdirectory
 	for dir in $(DIRS); do \
 	   if ls $(SRC)$$dir/*.hpp > /dev/null 2>&1; then \

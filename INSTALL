@@ -371,7 +371,10 @@ MFEM_BATCHED_GEMV_TUNING = <path>/NO
    MFEM (with CUDA or HIP), then run
       python3 config/tune_batched_gemv.py --mfem-dir <MFEM build or install>
    which writes the header and prints how to rebuild MFEM with it. Use an
-   absolute path. Any change of this option requires rebuilding MFEM.
+   absolute path. Any change of this option requires rebuilding MFEM. The
+   header is installed as include/mfem/config/_batched_gemv_tuning.hpp, so the
+   install records the tuning it was built with and does not refer back to
+   the given path.
 
 MFEM_USE_SUNDIALS = YES/NO
    Enable MFEM time integrators and non-linear solvers based on the SUNDIALS

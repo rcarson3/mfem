@@ -337,7 +337,18 @@ def tune(res, fe_weight):
     return p
 
 
+def gflops(res, n, gbs):
+    """GFLOP/s of an n x n gemv measured at gbs GB/s (bytes of A + x + y),
+    with 2 n^2 + 2 n flops per matrix, the count of MAGMA's testers."""
+    if gbs is None:
+        return None
+    rb = int(res.info.get('real_t_bytes', '8'))
+    return gbs * (2.0 * n * n + 2.0 * n) / (rb * (n * n + 2.0 * n))
+
+
 def summary_rows(res, tuned):
+    """Per (op, n): GFLOP/s of the tuned and default parameters, of the best
+    native kernel, and of each vendor library."""
     rows = []
     vend = sorted(set(c for (f, c, o, n) in res.r if f == 'vendor'))
     for op in ('N', 'T'):
@@ -346,8 +357,9 @@ def summary_rows(res, tuned):
             d = predict(res, res.default, op, n)
             if t is None or d is None:
                 continue
-            v = {c: res.get('vendor', c, op, n) for c in vend}
-            rows.append((op, n, t, d, res.best[(op, n)], v))
+            v = {c: gflops(res, n, res.get('vendor', c, op, n)) for c in vend}
+            rows.append((op, n, gflops(res, n, t), gflops(res, n, d),
+                         gflops(res, n, res.best[(op, n)]), v))
     return rows, vend
 
 
@@ -375,8 +387,9 @@ def write_header(path, res, tuned, rows, vend, backend, args):
                '  // default %d' % res.default[k]
         L.append('#define MFEM_GEMV_%s %d%s' % (k, tuned[k], note))
     L.append('')
-    L.append('// Measured GB/s (A + x + y): tuned, default parameters, and the')
-    L.append('// vendor libraries through BatchedLinAlg (where measured).')
+    L.append('// Measured GFLOP/s (2 n^2 + 2 n flops per n x n matrix): tuned,')
+    L.append('// default parameters, and the vendor libraries through BatchedLinAlg')
+    L.append('// (where measured).')
     hdr = '//  op    n   tuned  default' + ''.join(' %9s' % c for c in vend)
     L.append(hdr)
     for op, n, t, d, b, v in rows:
@@ -405,7 +418,7 @@ def plot(path, rows, vend, info):
             rv = [(x[1], x[5][c]) for x in r if x[5][c] is not None]
             ax.plot([a for a, _ in rv], [g for _, g in rv], 'o-', ms=3, label=c)
         ax.set_title('op %s' % op)
-        ax.set_ylabel('GB/s (A + x + y)')
+        ax.set_ylabel('GFLOP/s')
         ax.set_ylim(bottom=0)
         ax.grid(alpha=0.3)
         ax.legend(loc='lower right')
@@ -512,7 +525,7 @@ def main():
         log('%-14s %8d %8d%s' % (k, tuned[k], res.default[k],
                                  '' if tuned[k] == res.default[k] else '  *'))
     log('')
-    log('GB/s (A + x + y) at the low-order element sizes:')
+    log('GFLOP/s at the low-order element sizes:')
     log('op    n   tuned  default' + ''.join(' %9s' % c for c in vend))
     for op, n, t, d, b, v in rows:
         if n in FE_SIZES:

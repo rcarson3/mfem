@@ -26,8 +26,14 @@
 #include "../../config/config.hpp"
 #include "../../general/forall.hpp"
 
+// The tuning header is installed next to config.hpp. While MFEM itself is
+// built, MFEM_BATCHED_GEMV_TUNING_FILE points at the copy the build uses.
 #if defined(MFEM_BATCHED_GEMV_TUNING) && !defined(MFEM_GEMV_IGNORE_TUNING)
-#include MFEM_BATCHED_GEMV_TUNING
+#ifdef MFEM_BATCHED_GEMV_TUNING_FILE
+#include MFEM_BATCHED_GEMV_TUNING_FILE
+#else
+#include "../../config/_batched_gemv_tuning.hpp"
+#endif
 #endif
 
 #ifdef MFEM_GEMV_TUNED_FOR_HIP
