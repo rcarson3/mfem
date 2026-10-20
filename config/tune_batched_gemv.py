@@ -162,7 +162,8 @@ def build(args, backend, mk):
 def run(args, exe):
     cmd = shlex.split(args.launcher) + [
         exe, str(args.budget_mb), str(args.trial_ms),
-        '0' if args.no_vendor else '1', str(args.stride)]
+        '0' if args.no_vendor else '1', str(args.stride),
+        str(args.vendor_max_batch)]
     log('Running: ' + ' '.join(shlex.quote(c) for c in cmd))
     lines = []
     raw = os.path.join(args.work_dir, 'results.txt')
@@ -444,6 +445,11 @@ def main():
                          'to other sizes (default 4)' % FE_SIZES)
     ap.add_argument('--no-vendor', action='store_true',
                     help='do not measure cuBLAS/hipBLAS/MAGMA for comparison')
+    ap.add_argument('--vendor-max-batch', type=int, default=1 << 20,
+                    help='largest batch passed to the vendor libraries in one '
+                         'call; larger batches (the smallest sizes) are split '
+                         'into several calls, since vendor libraries can fail '
+                         'on very large batch counts (default 1048576)')
     ap.add_argument('--skip-build', action='store_true',
                     help='reuse the benchmark already built in --work-dir')
     ap.add_argument('--results',

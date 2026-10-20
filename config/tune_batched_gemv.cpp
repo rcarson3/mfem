@@ -27,6 +27,7 @@
 //    TUNE_MAIN         compile main()
 //
 // Usage: tune_batched_gemv <budget MB> <trial ms> <vendor 0/1> <stride>
+//                          <vendor max batch>
 // Output lines (whitespace separated):
 //    INFO <key> <value...>
 //    DEFAULT <name>=<value> ...
@@ -226,9 +227,11 @@ int main(int argc, char *argv[])
    b.trial_s = 1e-3 * (argc > 2 ? atof(argv[2]) : 20.0);
    const bool vendor = argc > 3 ? atoi(argv[3]) != 0 : true;
    const int stride = argc > 4 ? atoi(argv[4]) : 1;
+   const int vendor_max_batch = std::max(1, argc > 5 ? atoi(argv[5]) : 1 << 20);
 
    PrintGpuInfo();
    printf("INFO budget_mb %.0f\n", b.budget * 1e-6);
+   printf("INFO vendor_max_batch %d\n", vendor_max_batch);
    using P = bg::DefaultGemvParams;
    printf("DEFAULT SMALL_BLOCK_N=%d SMALL_BLOCK_T=%d SMALL_T_MAX=%d "
           "MED_N_ROUND=%d MED_N_BLOCK=%d MED_T_G1=%d MED_T_NT1=%d "
@@ -302,24 +305,37 @@ int main(int argc, char *argv[])
          if (vend)
          {
             // Vendor libraries through BatchedLinAlg, on aliases of the
-            // same data.
-            DenseTensor At;
-            At.NewMemoryAndSize(Memory<real_t>(b.A.GetMemory(), 0, n * n * n_mat),
-                                n, n, n_mat, false);
-            Vector xs(b.x, 0, n * n_mat), ys(b.y, 0, n * n_mat);
-            const auto op = tr ? BatchedLinAlg::Op::T : BatchedLinAlg::Op::N;
-            b.Time("vendor", "GPU_BLAS", tr, n, n_mat, [&]()
+            // same data. Batches larger than vendor_max_batch (the smallest
+            // sizes) are split into several calls, since vendor libraries
+            // can fail on such batch counts (e.g. 42M 1x1 matrices crashed
+            // on an MI300A) where the native kernels do not.
+            const int n_chunk = (n_mat + vendor_max_batch - 1) / vendor_max_batch;
+            std::vector<DenseTensor> At(n_chunk);
+            std::vector<Vector> xs(n_chunk), ys(n_chunk);
+            for (int c = 0; c < n_chunk; c++)
             {
-               BatchedLinAlg::Get(BatchedLinAlg::GPU_BLAS).AddMult(At, xs, ys, 1.0,
-                                                                   0.0, op);
-            });
+               const int first = c * vendor_max_batch;
+               const int cnt = std::min(vendor_max_batch, n_mat - first);
+               At[c].NewMemoryAndSize(Memory<real_t>(b.A.GetMemory(), n * n * first,
+                                                     n * n * cnt), n, n, cnt, false);
+               xs[c].MakeRef(b.x, n * first, n * cnt);
+               ys[c].MakeRef(b.y, n * first, n * cnt);
+            }
+            const auto op = tr ? BatchedLinAlg::Op::T : BatchedLinAlg::Op::N;
+            auto run_vendor = [&](BatchedLinAlg::Backend be)
+            {
+               const BatchedLinAlgBase &lib = BatchedLinAlg::Get(be);
+               for (int c = 0; c < n_chunk; c++)
+               {
+                  lib.AddMult(At[c], xs[c], ys[c], 1.0, 0.0, op);
+               }
+            };
+            b.Time("vendor", "GPU_BLAS", tr, n, n_mat,
+                   [&]() { run_vendor(BatchedLinAlg::GPU_BLAS); });
             if (magma)
             {
-               b.Time("vendor", "MAGMA", tr, n, n_mat, [&]()
-               {
-                  BatchedLinAlg::Get(BatchedLinAlg::MAGMA).AddMult(At, xs, ys, 1.0,
-                                                                   0.0, op);
-               });
+               b.Time("vendor", "MAGMA", tr, n, n_mat,
+                      [&]() { run_vendor(BatchedLinAlg::MAGMA); });
             }
          }
       }
