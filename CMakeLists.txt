@@ -92,10 +92,10 @@ endif()
 # ExaConstit fork: RAJA releases up to v2025.12 (and Umpire built against them)
 # only require C++17, and ExaConstit builds with C++17. Because MFEM exports
 # cxx_std_${CMAKE_CXX_STANDARD} to its users, forcing C++20 here forces it on
-# ExaConstit too. Set MFEM_FORCE_CXX20_WITH_RAJA=OFF to keep the requested
-# standard (the default ON keeps the upstream behavior).
+# ExaConstit too. This fork therefore defaults MFEM_FORCE_CXX20_WITH_RAJA to OFF
+# and keeps the requested standard; set it ON for the upstream behavior.
 option(MFEM_FORCE_CXX20_WITH_RAJA
-       "Force C++20 when RAJA or Umpire is enabled (upstream default)" ON)
+       "Force C++20 when RAJA or Umpire is enabled (upstream behavior)" OFF)
 if (MFEM_FORCE_CXX20_WITH_RAJA AND (MFEM_USE_UMPIRE OR MFEM_USE_RAJA) AND
     ("${CMAKE_CXX_STANDARD}" LESS "20"))
   set(CMAKE_CXX_STANDARD 20 CACHE STRING "C++ standard to use." FORCE)
